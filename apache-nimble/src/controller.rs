@@ -6,13 +6,7 @@ use bt_hci::cmd::controller_baseband::HostBufferSize;
 use bt_hci::cmd::{AsyncCmd, Cmd, Error, SyncCmd};
 use bt_hci::controller::{ControllerCmdAsync, ControllerCmdSync};
 use bt_hci::data::{AclPacket, AclPacketHeader};
-use bt_hci::event::{
-    CommandComplete,
-    CommandCompleteWithStatus,
-    Event,
-    EventPacket,
-    EventPacketHeader,
-};
+use bt_hci::event::{CommandComplete, CommandCompleteWithStatus, Event, EventPacketHeader};
 use bt_hci::param::Error as HciError;
 use bt_hci::{ControllerToHostPacket, FromHciBytes, PacketKind, ReadHci, WriteHci};
 use defmt::{error, trace, Debug2Format};
@@ -38,16 +32,15 @@ extern "C" fn ble_transport_to_hs_evt_impl(buf: *mut cty::c_void) -> cty::c_int 
     }
 
     // ignore no-op event from the controller
-    if let Ok((
-        ControllerToHostPacket::Event(EventPacket {
-            event: Event::CommandComplete(CommandComplete { cmd_opcode, .. }),
-            ..
-        }),
-        _,
-    )) = ControllerToHostPacket::from_hci_bytes_with_kind(PacketKind::Event, &data)
-    {
-        if cmd_opcode.to_raw() == 0 {
-            return 0;
+    if let Ok((hdr, _)) = EventPacketHeader::from_hci_bytes(&data) {
+        let event_len = core::mem::size_of::<EventPacketHeader>() + hdr.params_len as usize;
+        let event_buf = &data[..event_len];
+        if let Ok((Event::CommandComplete(CommandComplete { cmd_opcode, .. }), _)) =
+            Event::from_hci_bytes(event_buf)
+        {
+            if cmd_opcode.to_raw() == 0 {
+                return 0;
+            }
         }
     }
 
@@ -361,24 +354,26 @@ impl bt_hci::controller::Controller for NimbleController {
             let buf = unsafe { core::slice::from_raw_parts_mut(buf.as_mut_ptr(), len) };
             let (kind, data) = READ_CHANNEL.receive().await;
             buf.copy_from_slice(&data[..len]);
-            match ControllerToHostPacket::from_hci_bytes_with_kind(kind, buf) {
-                Ok((
-                    ControllerToHostPacket::Event(EventPacket {
-                        event: Event::CommandComplete(_),
-                        ..
-                    }),
-                    _,
-                ))
-                | Ok((
-                    ControllerToHostPacket::Event(EventPacket {
-                        event: Event::CommandStatus(_),
-                        ..
-                    }),
-                    _,
-                )) => {
-                    CMD_SIGNAL.send(data).await;
-                    continue;
+
+            // For event packets, we need to divert CommandComplete / CommandStatus to CMD_SIGNAL.
+            if kind == PacketKind::Event {
+                if let Ok((hdr, _)) = EventPacketHeader::from_hci_bytes(buf) {
+                    let event_len =
+                        core::mem::size_of::<EventPacketHeader>() + hdr.params_len as usize;
+                    let event_buf = &buf[..event_len];
+                    if let Ok((event, _)) = Event::from_hci_bytes(event_buf) {
+                        match event {
+                            Event::CommandComplete(_) | Event::CommandStatus(_) => {
+                                CMD_SIGNAL.send(data).await;
+                                continue;
+                            }
+                            _ => {}
+                        }
+                    }
                 }
+            }
+
+            match ControllerToHostPacket::from_hci_bytes_with_kind(kind, buf) {
                 Ok(value) => {
                     trace!("reading packet from controller: {}", Debug2Format(&value.0));
                     return Ok(value.0);
