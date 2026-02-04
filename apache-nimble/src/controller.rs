@@ -6,7 +6,13 @@ use bt_hci::cmd::controller_baseband::HostBufferSize;
 use bt_hci::cmd::{AsyncCmd, Cmd, Error, SyncCmd};
 use bt_hci::controller::{ControllerCmdAsync, ControllerCmdSync};
 use bt_hci::data::{AclPacket, AclPacketHeader};
-use bt_hci::event::{CommandComplete, Event, EventPacketHeader};
+use bt_hci::event::{
+    CommandComplete,
+    CommandCompleteWithStatus,
+    Event,
+    EventPacket,
+    EventPacketHeader,
+};
 use bt_hci::param::Error as HciError;
 use bt_hci::{ControllerToHostPacket, FromHciBytes, PacketKind, ReadHci, WriteHci};
 use defmt::{error, trace, Debug2Format};
@@ -33,9 +39,10 @@ extern "C" fn ble_transport_to_hs_evt_impl(buf: *mut cty::c_void) -> cty::c_int 
 
     // ignore no-op event from the controller
     if let Ok((
-        ControllerToHostPacket::Event(Event::CommandComplete(CommandComplete {
-            cmd_opcode, ..
-        })),
+        ControllerToHostPacket::Event(EventPacket {
+            event: Event::CommandComplete(CommandComplete { cmd_opcode, .. }),
+            ..
+        }),
         _,
     )) = ControllerToHostPacket::from_hci_bytes_with_kind(PacketKind::Event, &data)
     {
@@ -355,8 +362,20 @@ impl bt_hci::controller::Controller for NimbleController {
             let (kind, data) = READ_CHANNEL.receive().await;
             buf.copy_from_slice(&data[..len]);
             match ControllerToHostPacket::from_hci_bytes_with_kind(kind, buf) {
-                Ok((ControllerToHostPacket::Event(Event::CommandComplete(_)), _))
-                | Ok((ControllerToHostPacket::Event(Event::CommandStatus(_)), _)) => {
+                Ok((
+                    ControllerToHostPacket::Event(EventPacket {
+                        event: Event::CommandComplete(_),
+                        ..
+                    }),
+                    _,
+                ))
+                | Ok((
+                    ControllerToHostPacket::Event(EventPacket {
+                        event: Event::CommandStatus(_),
+                        ..
+                    }),
+                    _,
+                )) => {
                     CMD_SIGNAL.send(data).await;
                     continue;
                 }
@@ -387,23 +406,34 @@ where
         match response {
             Event::CommandComplete(c) => {
                 if c.cmd_opcode == C::OPCODE {
-                    c.to_result::<C>()
-                        .map(|r| {
-                            trace!(
-                                "command successfully returned. cmd {} response {}",
-                                Debug2Format(&cmd),
-                                Debug2Format(&r)
-                            );
-                            r
-                        })
-                        .map_err(|e| {
+                    match CommandCompleteWithStatus::try_from(c) {
+                        Ok(ccws) => ccws
+                            .to_result::<C>()
+                            .map(|r| {
+                                trace!(
+                                    "command successfully returned. cmd {} response {}",
+                                    Debug2Format(&cmd),
+                                    Debug2Format(&r)
+                                );
+                                r
+                            })
+                            .map_err(|e| {
+                                error!(
+                                    "command responded with an error: cmd {} response {}",
+                                    Debug2Format(&cmd),
+                                    Debug2Format(&e)
+                                );
+                                Error::Hci(e)
+                            }),
+                        Err(e) => {
                             error!(
-                                "command responded with an error: cmd {} response {}",
+                                "failed to parse command complete for cmd {}: {}",
                                 Debug2Format(&cmd),
                                 Debug2Format(&e)
                             );
-                            Error::Hci(e)
-                        })
+                            Err(Error::Io(OsError::InvalidParameter))
+                        }
+                    }
                 } else {
                     error!(
                         "received response for unrelated command. intended command: {} received event: {}",
