@@ -24,7 +24,7 @@ fn set_target_flags(builder: &mut cc::Build) -> String {
 
     if CHIP_FEATURES
         .iter()
-        .filter(|(enabled, _)| (*enabled))
+        .filter(|(enabled, _)| *enabled)
         .count()
         > 1
     {
@@ -78,13 +78,19 @@ fn set_target_flags(builder: &mut cc::Build) -> String {
 }
 
 fn compile_nimble(generated_port_layer_types: PathBuf) {
-    let builder = &mut cc::Build::new();
+    let target = env::var("TARGET").unwrap();
+    let mut builder = cc::Build::new();
+    
+    // Configure cross-compiler for ARM targets
+    if target.starts_with("thumbv") {
+        builder.compiler("arm-none-eabi-gcc");
+    }
 
     // Define port layer in use
     builder.define(DEFINE, None);
 
     // Transport
-    add_c_files(builder, "../mynewt-nimble/nimble/transport/src");
+    add_c_files(&mut builder, "../mynewt-nimble/nimble/transport/src");
     builder.include("../mynewt-nimble/nimble/transport/include");
 
     // Porting layer
@@ -117,23 +123,23 @@ fn compile_nimble(generated_port_layer_types: PathBuf) {
         builder.file("../mynewt-nimble/porting/nimble/src/hal_timer.c");
 
         builder.define("NIMBLE_CFG_CONTROLLER", Some("1"));
-        add_c_files(builder, "../mynewt-nimble/nimble/controller/src");
+        add_c_files(&mut builder, "../mynewt-nimble/nimble/controller/src");
         builder.include("../mynewt-nimble/nimble/controller/include");
     }
 
     if cfg!(feature = "host") {
-        add_c_files(builder, "../mynewt-nimble/nimble/host/src");
+        add_c_files(&mut builder, "../mynewt-nimble/nimble/host/src");
         builder.include("../mynewt-nimble/nimble/host/include");
         // GAP
-        add_c_files(builder, "../mynewt-nimble/nimble/host/services/gatt/src");
+        add_c_files(&mut builder, "../mynewt-nimble/nimble/host/services/gatt/src");
         builder.include("../mynewt-nimble/nimble/host/services/gatt/include");
         // GATT
-        add_c_files(builder, "../mynewt-nimble/nimble/host/services/gap/src");
+        add_c_files(&mut builder, "../mynewt-nimble/nimble/host/services/gap/src");
         builder.include("../mynewt-nimble/nimble/host/services/gap/include");
     }
 
     // Target specific compilation flags
-    let libc_path = set_target_flags(builder);
+    let libc_path = set_target_flags(&mut builder);
 
     // Compile
     builder.warnings(false).compile("nimble-controller");

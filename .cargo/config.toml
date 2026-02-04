@@ -1,0 +1,10 @@
+[target.thumbv7em-none-eabihf]
+linker = "arm-none-eabi-gcc"
+runner = "probe-rs run --chip nRF52832"
+
+[target.thumbv7em-none-eabi]
+linker = "arm-none-eabi-gcc"
+runner = "probe-rs run --chip nRF52832"
+
+[build]
+target-dir = "target"
