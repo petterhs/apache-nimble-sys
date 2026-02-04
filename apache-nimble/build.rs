@@ -17,7 +17,10 @@ const PORT_LAYER_CRATE_DIR: &str = "../apache-nimble-sys";
 #[cfg(feature = "port-layer-embassy")]
 const DEFINE: &str = "DEFINE_EMBASSY";
 
-const CHIP_FEATURES: &[(bool, &str)] = &[(cfg!(feature = "nrf52840"), "NRF52840_XXAA")];
+const CHIP_FEATURES: &[(bool, &str)] = &[
+    (cfg!(feature = "nrf52840"), "NRF52840_XXAA"),
+    (cfg!(feature = "nrf52832"), "NRF52832_XXAA"),
+];
 
 fn set_target_flags(builder: &mut cc::Build) -> String {
     let target = env::var("TARGET").unwrap();
@@ -38,9 +41,9 @@ fn set_target_flags(builder: &mut cc::Build) -> String {
 
     // driver setup
     match *chip {
-        "NRF52840_XXAA" => {
+        "NRF52840_XXAA" | "NRF52832_XXAA" => {
             if cfg!(feature = "controller") {
-                // Driver
+                // Driver (common nrf52 driver for 52832 & 52840)
                 add_c_files(builder, "../mynewt-nimble/nimble/drivers/nrf5x/src/nrf52");
                 add_c_files(builder, "../mynewt-nimble/nimble/drivers/nrf5x/src");
                 builder.include("../mynewt-nimble/nimble/drivers/nrf5x/include");
@@ -71,8 +74,15 @@ fn set_target_flags(builder: &mut cc::Build) -> String {
 
     // libc path
     match (target.as_str(), *chip) {
-        ("thumbv7em-none-eabihf", "NRF52840_XXAA") => format!("{sysroot}/lib/thumb/v7e-m+fp/hard"),
-        ("thumbv7em-none-eabi", "NRF52840_XXAA") => format!("{sysroot}/lib/thumb/v7e-m+fp/softfp"),
+        // nRF52 series (Cortex-M4F, v7e-m+fp)
+        ("thumbv7em-none-eabihf", "NRF52840_XXAA")
+        | ("thumbv7em-none-eabihf", "NRF52832_XXAA") => {
+            format!("{sysroot}/lib/thumb/v7e-m+fp/hard")
+        }
+        ("thumbv7em-none-eabi", "NRF52840_XXAA")
+        | ("thumbv7em-none-eabi", "NRF52832_XXAA") => {
+            format!("{sysroot}/lib/thumb/v7e-m+fp/softfp")
+        }
         _ => panic!("unsupported target and chip pair: ({}, {})", target, chip),
     }
 }

@@ -25,6 +25,7 @@ critical-section = ["apache-nimble-sys/critical-section"]
 
 # drivers
 nrf52840 = ["apache-nimble-sys/nrf52840"]
+nrf52832 = ["apache-nimble-sys/nrf52832"]
 
 # port layers
 port-layer-embassy = ["apache-nimble-sys/port-layer-embassy"]

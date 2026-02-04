@@ -33,6 +33,7 @@ critical-section = ["critical-section/restore-state-bool"]
 
 # drivers
 nrf52840 = ["dep:nrf-pac", "nrf-pac/nrf52840"]
+nrf52832 = ["dep:nrf-pac", "nrf-pac/nrf52832"]
 
 # port layers
 port-layer-embassy = ["dep:embassy-sync", "dep:embassy-futures", "dep:embassy-time", "dep:embassy-time-driver", "dep:embassy-time-queue-utils", "embassy-time-queue-utils/_generic-queue"]

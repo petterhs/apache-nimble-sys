@@ -8,7 +8,7 @@
 #[cfg(not(any(feature = "port-layer-embassy")))]
 compile_error!("Please choose a port layer to use.");
 
-#[cfg_attr(feature = "nrf52840", path = "drivers/nrf5x.rs")]
+#[cfg_attr(any(feature = "nrf52840", feature = "nrf52832"), path = "drivers/nrf5x.rs")]
 mod driver;
 
 // Note: can't use cfg_attr for the port layers since cbindgen won't be able to parse it
