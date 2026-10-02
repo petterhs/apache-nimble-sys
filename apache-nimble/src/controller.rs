@@ -29,6 +29,9 @@ extern "C" fn ble_transport_to_hs_evt_impl(buf: *mut cty::c_void) -> cty::c_int 
         data[0] = (*ptr).opcode;
         data[1] = (*ptr).length;
         data[2..(2 + len)].copy_from_slice((*ptr).data.as_slice(len));
+        // NimBLE transfers ownership of the event buffer to this callback.
+        // The Rust channel owns a copy, so return the original buffer now.
+        raw::ble_transport_free(buf);
     }
 
     // ignore no-op event from the controller
@@ -74,6 +77,7 @@ extern "C" fn ble_transport_to_hs_acl_impl(om: *mut raw::os_mbuf) -> cty::c_int 
             "could not fully parse ACL packet to send to host. dropping packet: {}",
             Debug2Format(&e)
         );
+        unsafe { raw::os_mbuf_free_chain(om) };
         return OsError::NoMem as i32;
     };
 
@@ -82,6 +86,7 @@ extern "C" fn ble_transport_to_hs_acl_impl(om: *mut raw::os_mbuf) -> cty::c_int 
         .map_or_else(
             |_| {
                 error!("acl to host being overwritten. this should not happen.");
+                unsafe { raw::os_mbuf_free_chain(om) };
                 OsError::NoMem as i32
             },
             |_| unsafe {
@@ -154,7 +159,9 @@ const HCI_PKT_BUF_SIZE: usize = raw::BLE_ACL_MAX_PKT_SIZE as usize
     + size_of::<raw::os_mbuf>();
 
 static NIMBLE_CONTROLLER_IN_USE: AtomicBool = AtomicBool::new(false);
-static READ_CHANNEL: Channel<CriticalSectionRawMutex, (PacketKind, [u8; HCI_PKT_BUF_SIZE]), 1> =
+// The controller can deliver several ACL packets before the host task runs,
+// especially while the application writes a DFU packet to external flash.
+static READ_CHANNEL: Channel<CriticalSectionRawMutex, (PacketKind, [u8; HCI_PKT_BUF_SIZE]), 8> =
     Channel::new();
 static CMD_SIGNAL: Channel<CriticalSectionRawMutex, [u8; HCI_PKT_BUF_SIZE], 1> = Channel::new();
 
