@@ -29,6 +29,9 @@ extern "C" fn ble_transport_to_hs_evt_impl(buf: *mut cty::c_void) -> cty::c_int 
         data[0] = (*ptr).opcode;
         data[1] = (*ptr).length;
         data[2..(2 + len)].copy_from_slice((*ptr).data.as_slice(len));
+        // NimBLE transfers ownership of the event buffer to this callback.
+        // The Rust channel owns a copy, so return the original buffer now.
+        raw::ble_transport_free(buf);
     }
 
     // ignore no-op event from the controller
